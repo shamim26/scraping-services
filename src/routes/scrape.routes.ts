@@ -1,13 +1,15 @@
 import { Router, Request, Response } from "express";
-import { getProductSuggestions } from "../automation";
+import { getPhoneSuggestions } from "../automation";
 
 const scrapeRouter = Router();
 
 scrapeRouter.post("/suggestions", async (req: Request, res: Response) => {
   try {
-    const { name, category } = req.body;
-    const suggestions = await getProductSuggestions(name, category);
-    res.json({ suggestions });
+    const suggestions = await getPhoneSuggestions(
+      "https://gsmarena.com/",
+      "Xiaomi"
+    );
+    res.json(suggestions);
   } catch (err) {
     res
       .status(500)
