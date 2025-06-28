@@ -5,9 +5,10 @@ const scrapeRouter = Router();
 
 scrapeRouter.post("/suggestions", async (req: Request, res: Response) => {
   try {
+    const { search } = req.body;
     const suggestions = await getPhoneSuggestions(
       "https://gsmarena.com/",
-      "Xiaomi"
+      search
     );
     res.json(suggestions);
   } catch (err) {
