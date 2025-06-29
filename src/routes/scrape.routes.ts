@@ -7,7 +7,7 @@ scrapeRouter.post("/suggestions", async (req: Request, res: Response) => {
   try {
     const { search } = req.body;
     const suggestions = await getPhoneSuggestions(
-      "https://gsmarena.com/",
+      "https://gadgetandgear.com/brand",
       search
     );
     res.json(suggestions);
