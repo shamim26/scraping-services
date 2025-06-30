@@ -2,7 +2,7 @@ import puppeteer from "puppeteer";
 import { closeBrowser, getBrowser } from "./utils/puppeteer";
 
 export async function getPhoneSuggestions(url: string, search: string) {
-  const browser = await puppeteer.launch({ headless: false });
+  const browser = await getBrowser();
   const page = await browser.newPage();
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -37,31 +37,29 @@ export async function getPhoneSuggestions(url: string, search: string) {
     timeout: 30000,
   });
 
-  let currentPage = 1;
   let hasMoreProducts = true;
   const results = [];
 
   while (hasMoreProducts) {
-    const paginatedUrl = `${url}?currentPage=${currentPage}`;
-    await page.goto(paginatedUrl);
+    // Wait for product cards to appear
+    await page.waitForSelector('div[class^="ProductCard_ProductCard"]', {
+      timeout: 30000,
+    });
 
     const productCards = await page.$$('div[class^="ProductCard_ProductCard"]');
     if (productCards.length === 0) {
       hasMoreProducts = false;
-      console.log("No more products found");
       break;
     }
 
     for (const card of productCards) {
-      // Title
-      const title = await card.$eval("h4.ProductCard_cardTitle__HlwIo", (el) =>
-        el.textContent?.trim()
-      );
-
       // Price
-      const price = await card.$eval("span.ProductCard_price__t9DLm", (el) =>
-        el.textContent?.trim()
-      );
+      let price = null;
+      try {
+        price = await card.$eval("span.ProductCard_price__t9DLm", (el) =>
+          el.textContent?.trim()
+        );
+      } catch {}
 
       // Old Price (optional)
       let oldPrice = null;
@@ -75,16 +73,6 @@ export async function getPhoneSuggestions(url: string, search: string) {
       const productLink = await card.$eval(
         "div.ProductCard_cardBody__8nPmw a",
         (el) => el.getAttribute("href")
-      );
-
-      // Image
-      const image = await card.$eval(
-        "div.ProductCard_cardTop__x1s9c img",
-        (el) => el.getAttribute("src")
-      );
-      const imageAlt = await card.$eval(
-        "div.ProductCard_cardTop__x1s9c img",
-        (el) => el.getAttribute("alt")
       );
 
       // Construct full URL if needed
@@ -106,14 +94,8 @@ export async function getPhoneSuggestions(url: string, search: string) {
         (el) => el.textContent?.trim()
       );
 
-      // Main Image
-      const mainImage = await detailPage.$eval(
-        "div.Top_mainImage__Jl6rU img.Top_image__3b3Bd",
-        (el) => el.getAttribute("src")
-      );
-
       // Short Features (bulleted list)
-      const features = await detailPage.$$eval(
+      const keyFeatures = await detailPage.$$eval(
         "div.html-content ul li",
         (els) => els.map((el) => el.textContent?.trim())
       );
@@ -124,33 +106,56 @@ export async function getPhoneSuggestions(url: string, search: string) {
         (els) => els.map((el) => el.getAttribute("title"))
       );
 
-      // Warranty
-      let warranty = null;
-      try {
-        warranty = await detailPage.$eval(
-          "div.Top_warranty__c92S8 span",
-          (el) => el.textContent?.trim()
-        );
-      } catch {}
+      // Scrape the specification table
+      const specs = await detailPage.$$eval(
+        "table.Description_specification__pXv75 tr.border-b",
+        (rows) => {
+          const specsArr: Record<string, string>[] = [];
+          for (const row of rows) {
+            const labelEl = row.querySelector('p[class*="basis-[30%]"]');
+            const valueEl = row.querySelector('p[class*="basis-[70%]"]');
+            if (labelEl && valueEl) {
+              const key = labelEl.textContent?.trim() || "";
+              const value = valueEl.textContent?.trim() || "";
+              if (key && value) {
+                const obj: Record<string, string> = {};
+                obj[key] = value;
+                specsArr.push(obj);
+              }
+            }
+          }
+          return specsArr;
+        }
+      );
 
       await detailPage.close();
 
       results.push({
-        title,
+        productName: detailTitle,
         price,
         oldPrice,
-        productLink: fullProductUrl,
-        image,
-        imageAlt,
-        detailTitle,
-        mainImage,
-        features,
         colors,
-        warranty,
+        keyFeatures,
+        specs,
       });
     }
 
-    currentPage++;
+    // Check for "Next" button and click if available
+    const nextButton = await page.$("button.PageChange_right__IyfXJ");
+    const totalPage = await page.$eval("p.PageChange_text__0eSpH", (el) =>
+      el.textContent?.trim()
+    );
+    const totalPages = parseInt(totalPage?.match(/\d+/)?.[0] || "1", 10);
+    const currentPage = parseInt(page.url().split("=")[1], 10);
+
+    if (currentPage >= totalPages) {
+      hasMoreProducts = false;
+    } else {
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: "domcontentloaded" }),
+        nextButton?.click(),
+      ]);
+    }
   }
 
   await page.close();
